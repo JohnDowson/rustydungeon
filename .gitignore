@@ -1,1 +1,5 @@
 /target
+/resources
+/.vscode
+TODO
+rustydungeon.code-workspace

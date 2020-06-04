@@ -4,41 +4,12 @@ use specs::prelude::*;
 use specs_derive::Component;
 use std::cmp::{max, min};
 mod rect;
-use rect::*;
+pub use rect::*;
 mod map;
 pub use map::*;
-
-// TODO: move components to a separate file/files
-#[derive(Component)]
-struct Position {
-    x: i32,
-    y: i32,
-}
-
-#[derive(Component)]
-struct Renderable {
-    glyph: rltk::FontCharType,
-    fg: RGB,
-    bg: RGB,
-}
-
-#[derive(Component)]
-struct LeftMover {}
-
-struct LeftWalker {}
-
-impl<'a> System<'a> for LeftWalker {
-    type SystemData = (ReadStorage<'a, LeftMover>, WriteStorage<'a, Position>);
-    fn run(&mut self, (lefty, mut pos) : Self::SystemData) {
-        for (_lefty, pos) in (&lefty, &mut pos).join() {
-            pos.x -= 1;
-            if pos.x <0 { pos.x = 79}
-        }
-    }
-}
-
-#[derive(Component, Debug)]
-struct Player {}
+use std::{thread, time};
+mod components;
+pub use components::*;
 
 struct State {
     ecs: World,
@@ -50,8 +21,8 @@ impl GameState for State {
         self.run_systems();
         self.handle_input(ctx);
 
-        let map = self.ecs.fetch::<Vec<TileType>>();
-        draw_map(&map, ctx);
+        let map = self.ecs.fetch::<Map>();
+        draw_map(&map.tiles, ctx);
 
         let positions = self.ecs.read_storage::<Position>();
         let renderables = self.ecs.read_storage::<Renderable>();
@@ -59,6 +30,8 @@ impl GameState for State {
         for (pos, render) in (&positions, &renderables).join() {
             ctx.set(pos.x, pos.y, render.fg, render.bg, render.glyph);
         }
+        // TODO: something more robust, account for frametime
+        thread::sleep(time::Duration::from_millis(33))
     }
 }
 impl State {
@@ -84,11 +57,11 @@ impl State {
 fn try_move_player(delta_x: i32, delta_y: i32, ecs: &mut World) {
     let mut positions = ecs.write_storage::<Position>();
     let mut players = ecs.write_storage::<Player>();
-    let map = ecs.fetch::<Vec<TileType>>();
+    let map = ecs.fetch::<Map>();
 
     for (_player, pos) in (&mut players, &mut positions).join() {
-        let destination_idx = xy_idx(pos.x + delta_x, pos.y + delta_y);
-        if map[destination_idx] != TileType::Wall {
+        let destination_idx = map.xy_idx(pos.x + delta_x, pos.y + delta_y);
+        if map.tiles[destination_idx] != TileType::Wall {
             pos.x = min(79 , max(0, pos.x + delta_x));
             pos.y = min(49, max(0, pos.y + delta_y));
         }
@@ -107,21 +80,23 @@ fn main() -> rltk::BError {
     for component register <component>
     */
     let mut rng = RNG::new();
-    let (map, rooms) = new_map(0);
-    let player_spawn = rooms[rng.range(0 as usize, rooms.len())].center();
+    let map = Map::new_map(0);
+    let player_spawn = map.rooms[rng.range(0 as usize, map.rooms_n())].center();
     gs.ecs.insert(map);
     gs.ecs.register::<Position>();
     gs.ecs.register::<Renderable>();
     gs.ecs.register::<LeftMover>();
     gs.ecs.register::<Player>();
+    gs.ecs.register::<Viewshed>();
     gs.ecs
         .create_entity()
-        .with(Position { x: player_spawn.0, y: player_spawn.1 })
+        .with(Position::from_tuple(player_spawn))
         .with(Renderable {
             glyph: rltk::to_cp437('@'),
             fg: RGB::named(rltk::YELLOW),
             bg: RGB::named(rltk::BLACK),
         })
+        .with(Viewshed::new(8))
         .with(Player{})
         .build();
     for i in 0..10 {
