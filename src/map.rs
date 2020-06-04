@@ -1,4 +1,4 @@
-use rltk::{Rltk, RGB};
+use rltk::{Algorithm2D, Point, BaseMap, RGB, Rltk};
 use rltk::RandomNumberGenerator as RNG;
 use crate::rect::*;
 use std::cmp::{max, min};
@@ -9,10 +9,12 @@ pub enum TileType {
 }
 
 pub struct Map {
-    pub tiles  : Vec<TileType>,
-    pub rooms  : Vec<Rect>,
-    pub width  : i32,
-    pub heigth : i32
+    pub tiles          : Vec<TileType>,
+    pub rooms          : Vec<Rect>,
+    pub width          : i32,
+    pub height         : i32,
+    pub revealed_tiles : Vec<bool>,
+    pub visible_tiles  : Vec<bool>
 }
 
 impl Map {
@@ -21,7 +23,13 @@ impl Map {
 
     pub fn new_map(seed: u64) -> Map {
         let mut rng = RNG::seeded(seed);
-        let mut map = Map { tiles: vec![TileType::Wall; 80*50], rooms: Vec::new(), width: 80, heigth: 50};
+        let mut map = Map {
+            tiles          : vec![TileType::Wall; 80*50],
+            rooms          : Vec::new(),
+            width          : 80, height: 50,
+            revealed_tiles : vec![false; 80*50],
+            visible_tiles  : vec![false; 80*50]
+        };
     
         const MAX_ROOMS : i32 = 30;
         const MIN_SIZE : i32 = 6;
@@ -86,11 +94,49 @@ impl Map {
         }
     }
 
+    pub fn draw_map(&self, ctx: &mut Rltk) {
+        let (mut y, mut x) = (0, 0);
+        for (idx, tile) in self.tiles.iter().enumerate() {
+            if self.revealed_tiles[idx] {
+                let glyph;
+                let mut fg;
+                match tile {
+                    TileType::Floor => {
+                            fg = RGB::from_f32(0.5, 0.5, 0.5);
+                            glyph = rltk::to_cp437('.');
+                    }
+                    TileType::Wall => {
+                            fg = RGB::from_f32(0.0, 1.0, 0.0);
+                            glyph = rltk::to_cp437('#');
+                    }
+                }
+                if !self.visible_tiles[idx] {
+                    fg = fg.to_greyscale();
+                }
+                ctx.set(
+                    x,
+                    y,
+                    fg,
+                    RGB::from_f32(0., 0., 0.),
+                    glyph
+                );
+            }
+            // Move the coordinates
+            x += 1;
+            if x > 79 {
+                x = 0;
+                y += 1;
+            }
+        }
+    }
+
     pub fn test_map() -> Map {
         let mut map = Map {
-            tiles: vec![TileType::Floor; 80*50],
-            rooms: Vec::new(),
-            width: 50, heigth: 80 };
+            tiles          : vec![TileType::Floor; 80*50],
+            rooms          : Vec::new(),
+            width          : 50, height: 80,
+            revealed_tiles : vec![false; 80*50],
+            visible_tiles  : vec![false; 80*50]};
         for x in 0..80 {
             let idx = map.xy_idx(x, 0);
             map.tiles[idx] = TileType::Wall;
@@ -116,7 +162,19 @@ impl Map {
     }
 }
 
-pub fn draw_map(map: &[TileType], ctx: &mut Rltk) {
+impl BaseMap for Map {
+    fn is_opaque(&self, idx: usize) -> bool {
+        self.tiles[idx] == TileType::Wall
+    }
+}
+
+impl Algorithm2D for Map {
+    fn dimensions(&self) -> Point {
+        Point::new(self.width, self.height)
+    }
+}
+
+/*pub fn draw_map(map: &[TileType], ctx: &mut Rltk) {
     let mut y = 0;
     let mut x = 0;
     for tile in map.iter() {
@@ -137,4 +195,4 @@ pub fn draw_map(map: &[TileType], ctx: &mut Rltk) {
             y += 1;
         }
     }
-}
+} */

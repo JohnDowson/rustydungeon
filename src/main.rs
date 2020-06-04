@@ -1,28 +1,30 @@
-use rltk::{GameState, Rltk, VirtualKeyCode, RGB};
 use rltk::RandomNumberGenerator as RNG;
+use rltk::{GameState, Rltk, VirtualKeyCode, RGB};
 use specs::prelude::*;
-use specs_derive::Component;
-use std::cmp::{max, min};
+// use specs_derive::Component;
 mod rect;
 pub use rect::*;
+mod player;
+use player::*;
 mod map;
 pub use map::*;
 use std::{thread, time};
 mod components;
 pub use components::*;
+mod visibility_system;
+pub use visibility_system::VisibilitySystem;
 
 struct State {
     ecs: World,
+    rng: RNG
 }
 impl GameState for State {
     fn tick(&mut self, ctx: &mut Rltk) {
         ctx.cls();
-        
         self.run_systems();
         self.handle_input(ctx);
 
-        let map = self.ecs.fetch::<Map>();
-        draw_map(&map.tiles, ctx);
+        self.ecs.fetch::<Map>().draw_map(ctx);
 
         let positions = self.ecs.read_storage::<Position>();
         let renderables = self.ecs.read_storage::<Renderable>();
@@ -43,27 +45,35 @@ impl State {
                 VirtualKeyCode::Right => try_move_player(1, 0, &mut self.ecs),
                 VirtualKeyCode::Up => try_move_player(0, -1, &mut self.ecs),
                 VirtualKeyCode::Down => try_move_player(0, 1, &mut self.ecs),
+                VirtualKeyCode::R => self.regen_map(),
+                VirtualKeyCode::F => self.reveal_all(),
                 _ => {}
-            }
+            },
         }
     }
     fn run_systems(&mut self) {
-        let mut lw = LeftWalker{};
+        let mut lw = LeftWalker {};
         lw.run_now(&self.ecs);
         self.ecs.maintain();
+        let mut vis = VisibilitySystem {};
+        vis.run_now(&self.ecs);
+        self.ecs.maintain();
     }
-}
-
-fn try_move_player(delta_x: i32, delta_y: i32, ecs: &mut World) {
-    let mut positions = ecs.write_storage::<Position>();
-    let mut players = ecs.write_storage::<Player>();
-    let map = ecs.fetch::<Map>();
-
-    for (_player, pos) in (&mut players, &mut positions).join() {
-        let destination_idx = map.xy_idx(pos.x + delta_x, pos.y + delta_y);
-        if map.tiles[destination_idx] != TileType::Wall {
-            pos.x = min(79 , max(0, pos.x + delta_x));
-            pos.y = min(49, max(0, pos.y + delta_y));
+    fn reveal_all(&mut self) {
+        let mut map = self.ecs.fetch_mut::<Map>();
+        map.revealed_tiles = vec![true; 80*50];
+    }
+    fn regen_map(&mut self) {
+        self.ecs.remove::<Map>();
+        let map = Map::new_map(self.rng.range(0 as u64, 9999 as u64));
+        self.ecs.insert(map);
+        let map = self.ecs.fetch::<Map>();
+        let mut positions = self.ecs.write_storage::<Position>();
+        let mut players = self.ecs.write_storage::<Player>();
+        for (_player, pos) in (&mut players, &mut positions).join() {
+            let room0 = map.rooms[0].center();
+            pos.x = room0.0;
+            pos.y = room0.1;
         }
     }
 }
@@ -73,43 +83,47 @@ fn main() -> rltk::BError {
     let context = RltkBuilder::simple80x50()
         .with_title("Rusty Dungeon")
         .build()?;
-    let mut gs = State { ecs: World::new() };
+    let mut gs = State { ecs: World::new(), rng: RNG::new()};
     /*TODO: somehow refactor this to form of
     use components
     ...
     for component register <component>
     */
-    let mut rng = RNG::new();
     let map = Map::new_map(0);
-    let player_spawn = map.rooms[rng.range(0 as usize, map.rooms_n())].center();
-    gs.ecs.insert(map);
+    let player_spawn_room = gs.rng.range(0 as usize, map.rooms_n());
     gs.ecs.register::<Position>();
     gs.ecs.register::<Renderable>();
     gs.ecs.register::<LeftMover>();
     gs.ecs.register::<Player>();
     gs.ecs.register::<Viewshed>();
+    // enemy
+    for (idx, room) in map.rooms.iter().enumerate() {
+        if idx != player_spawn_room {
+        let (x,y) = room.center();
+        gs.ecs.create_entity()
+            .with(Position{ x, y })
+            .with(Renderable{
+                glyph: rltk::to_cp437('E'),
+                fg: RGB::named(rltk::RED),
+                bg: RGB::named(rltk::BLACK),
+            })
+            .with(Viewshed{ visible_tiles : Vec::new(), range: 8, dirty: true })
+            .build();
+        } else {}
+    }
+    // player
     gs.ecs
         .create_entity()
-        .with(Position::from_tuple(player_spawn))
+        .with(Position::from_tuple(map.rooms[player_spawn_room].center()))
         .with(Renderable {
             glyph: rltk::to_cp437('@'),
             fg: RGB::named(rltk::YELLOW),
             bg: RGB::named(rltk::BLACK),
         })
         .with(Viewshed::new(8))
-        .with(Player{})
+        .with(Player {})
         .build();
-    for i in 0..10 {
-        gs.ecs
-            .create_entity()
-            .with(Position { x: i * 7, y: 20 })
-            .with(Renderable {
-                glyph: rltk::to_cp437('☺'),
-                fg: RGB::named(rltk::RED),
-                bg: RGB::named(rltk::BLACK),
-            })
-            .with(LeftMover {})
-            .build();
-    }
+    gs.ecs.insert(map);
+    // create mor entities here
     rltk::main_loop(context, gs)
 }

@@ -1,8 +1,8 @@
-use rltk::{GameState, Rltk, VirtualKeyCode, RGB};
-use rltk::RandomNumberGenerator as RNG;
+use rltk::{RGB};
+// use rltk::RandomNumberGenerator as RNG;
 use specs::prelude::*;
 use specs_derive::Component;
-use crate::rect::*;
+// use crate::rect::*;
 
 #[derive(Component)]
 pub struct Position {
@@ -40,11 +40,12 @@ impl<'a> System<'a> for LeftWalker {
 #[derive(Component)]
 pub struct Viewshed {
     pub visible_tiles: Vec<rltk::Point>,
-    pub range: i32
+    pub range: i32,
+    pub dirty: bool
 }
 impl Viewshed {
     pub fn new(range: i32) -> Viewshed {
-        Viewshed { visible_tiles: Vec::new(), range: range}
+        Viewshed { visible_tiles: Vec::new(), range: range, dirty: true }
     }
 }
 
