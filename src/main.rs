@@ -14,30 +14,57 @@ pub use components::*;
 mod visibility_system;
 pub use visibility_system::VisibilitySystem;
 
-struct State {
-    ecs: World,
-    rng: RNG
+#[derive(PartialEq, Copy, Clone)]
+pub enum RunState {
+    Paused,
+    Running
+}
+
+pub struct State {
+    pub ecs: World,
+    pub rng: RNG,
+    pub runstate: RunState
 }
 impl GameState for State {
     fn tick(&mut self, ctx: &mut Rltk) {
-        ctx.cls();
-        self.run_systems();
-        self.handle_input(ctx);
+        if self.runstate == RunState::Running {
+            ctx.cls();
+            self.run_systems();
+            self.handle_input(ctx);
 
-        self.ecs.fetch::<Map>().draw_map(ctx);
+            let map = self.ecs.fetch::<Map>();
+            map.draw_map(ctx);
 
-        let positions = self.ecs.read_storage::<Position>();
-        let renderables = self.ecs.read_storage::<Renderable>();
+            let positions = self.ecs.read_storage::<Position>();
+            let renderables = self.ecs.read_storage::<Renderable>();
 
-        for (pos, render) in (&positions, &renderables).join() {
-            ctx.set(pos.x, pos.y, render.fg, render.bg, render.glyph);
+            for (pos, render) in (&positions, &renderables).join() {
+                let idx = map.xy_idx(pos.x, pos.y);
+                if map.visible_tiles[idx] {
+                ctx.set(pos.x, pos.y, render.fg, render.bg, render.glyph);
+                }
+            }
+            // TODO: something more robust, account for frametime
+            thread::sleep(time::Duration::from_millis(33))
+        } else {
+            self.handle_input(ctx)
         }
-        // TODO: something more robust, account for frametime
-        thread::sleep(time::Duration::from_millis(33))
     }
 }
 impl State {
     fn handle_input(&mut self, ctx: &mut Rltk) {
+        if self.runstate == RunState::Paused {
+            match ctx.key {
+                None => {}
+                Some(key) => match key {
+                    VirtualKeyCode::R => self.regen_map(),
+                    VirtualKeyCode::F => self.reveal_all(),
+                    VirtualKeyCode::P => self.toggle_runstate(ctx),
+                    _ => {}
+                }
+            }
+            return
+        }
         match ctx.key {
             None => {}
             Some(key) => match key {
@@ -47,8 +74,15 @@ impl State {
                 VirtualKeyCode::Down => try_move_player(0, 1, &mut self.ecs),
                 VirtualKeyCode::R => self.regen_map(),
                 VirtualKeyCode::F => self.reveal_all(),
+                VirtualKeyCode::P => self.toggle_runstate(ctx),
                 _ => {}
-            },
+            }
+        }
+    }
+    fn toggle_runstate(&mut self, ctx: &mut Rltk) {
+        match self.runstate {
+            RunState::Running => { self.runstate = RunState::Paused; ctx.print(1, 1, "Paused") },
+            RunState::Paused => { self.runstate = RunState::Running }
         }
     }
     fn run_systems(&mut self) {
@@ -83,7 +117,7 @@ fn main() -> rltk::BError {
     let context = RltkBuilder::simple80x50()
         .with_title("Rusty Dungeon")
         .build()?;
-    let mut gs = State { ecs: World::new(), rng: RNG::new()};
+    let mut gs = State { ecs: World::new(), rng: RNG::new(), runstate: RunState::Running};
     /*TODO: somehow refactor this to form of
     use components
     ...
